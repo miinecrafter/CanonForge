@@ -1,158 +1,167 @@
-import { Request, Response } from "express";
-import { validationResult } from "express-validator";
-import prisma from "../prisma/client";
-import { hashPassword, comparePassword } from "../utils/hash";
+import { Response } from 'express';
+import bcrypt from 'bcrypt';
+import { AuthRequest } from '../middleware/auth';
+import prisma from '../config/database';
 import {
-  signAccessToken,
-  signRefreshToken,
+  generateAccessToken,
+  generateRefreshToken,
   verifyRefreshToken,
-  verifyAccessToken
-} from "../utils/jwt";
+} from '../utils/jwt';
+import { COOKIE_OPTIONS, REFRESH_COOKIE_OPTIONS } from '../config/constants';
+import { AppError, asyncHandler } from '../middleware/error';
 
-const ACCESS_COOKIE_OPTS = {
-  httpOnly: true,
-  secure: false, // enable true in production
-  sameSite: "lax" as const
-};
+export const register = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const { username, email, password, role } = req.body;
 
-const REFRESH_COOKIE_OPTS = {
-  httpOnly: true,
-  secure: false,
-  sameSite: "lax" as const
-};
-
-export const register = async (req: Request, res: Response) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty())
-    return res.status(400).json({ errors: errors.array() });
-
-  const { username, email, password } = req.body;
-
-  // ✔ FIXED: Prisma v5 strict OR typing, guaranteed working version
-  const existing = await prisma.user.findFirst({
+  // Check if user exists
+  const existingUser = await prisma.user.findFirst({
     where: {
-      OR: [
-        { email: { equals: email } },
-        { username: { equals: username } }
-      ]
-    }
+      OR: [{ email }, { username }],
+    },
   });
 
-  if (existing)
-    return res.status(400).json({ error: "User already exists" });
+  if (existingUser) {
+    throw new AppError('User with this email or username already exists', 409);
+  }
 
-  const passwordHash = await hashPassword(password);
+  // Hash password
+  const passwordHash = await bcrypt.hash(password, 10);
 
+  // Create user
   const user = await prisma.user.create({
-    data: { username, email, passwordHash }
+    data: {
+      username,
+      email,
+      passwordHash,
+      role: role || 'READER',
+    },
   });
 
-  const accessToken = signAccessToken({ userId: user.id });
-  const refreshToken = signRefreshToken({ userId: user.id });
+  // Generate tokens
+  const accessToken = generateAccessToken({
+    userId: user.id,
+    email: user.email,
+    role: user.role,
+  });
 
-  res.cookie("accessToken", accessToken, ACCESS_COOKIE_OPTS);
-  res.cookie("refreshToken", refreshToken, REFRESH_COOKIE_OPTS);
+  const refreshToken = generateRefreshToken({
+    userId: user.id,
+    email: user.email,
+    role: user.role,
+  });
 
-  res.json({
+  // Set cookies
+  res.cookie('accessToken', accessToken, COOKIE_OPTIONS);
+  res.cookie('refreshToken', refreshToken, REFRESH_COOKIE_OPTIONS);
+
+  res.status(201).json({
+    message: 'User registered successfully',
     user: {
       id: user.id,
       username: user.username,
       email: user.email,
-      role: user.role
-    }
+      role: user.role,
+    },
   });
-};
+});
 
-export const login = async (req: Request, res: Response) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty())
-    return res.status(400).json({ errors: errors.array() });
-
+export const login = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { email, password } = req.body;
 
+  // Find user
   const user = await prisma.user.findUnique({
-    where: { email: email }
+    where: { email },
   });
 
-  if (!user)
-    return res.status(400).json({ error: "Invalid credentials" });
+  if (!user) {
+    throw new AppError('Invalid email or password', 401);
+  }
 
-  const ok = await comparePassword(password, user.passwordHash);
-  if (!ok)
-    return res.status(400).json({ error: "Invalid credentials" });
+  // Verify password
+  const isValidPassword = await bcrypt.compare(password, user.passwordHash);
 
-  const accessToken = signAccessToken({ userId: user.id });
-  const refreshToken = signRefreshToken({ userId: user.id });
+  if (!isValidPassword) {
+    throw new AppError('Invalid email or password', 401);
+  }
 
-  res.cookie("accessToken", accessToken, ACCESS_COOKIE_OPTS);
-  res.cookie("refreshToken", refreshToken, REFRESH_COOKIE_OPTS);
+  // Generate tokens
+  const accessToken = generateAccessToken({
+    userId: user.id,
+    email: user.email,
+    role: user.role,
+  });
+
+  const refreshToken = generateRefreshToken({
+    userId: user.id,
+    email: user.email,
+    role: user.role,
+  });
+
+  // Set cookies
+  res.cookie('accessToken', accessToken, COOKIE_OPTIONS);
+  res.cookie('refreshToken', refreshToken, REFRESH_COOKIE_OPTIONS);
 
   res.json({
+    message: 'Login successful',
     user: {
       id: user.id,
       username: user.username,
       email: user.email,
-      role: user.role
-    }
+      role: user.role,
+    },
   });
-};
+});
 
-export const refresh = async (req: Request, res: Response) => {
-  const token =
-    req.cookies?.refreshToken || req.body?.refreshToken;
+export const refresh = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const { refreshToken } = req.cookies;
 
-  if (!token)
-    return res.status(401).json({ error: "No refresh token" });
+  if (!refreshToken) {
+    throw new AppError('Refresh token required', 401);
+  }
 
   try {
-    const payload: any = verifyRefreshToken(token);
+    const decoded = verifyRefreshToken(refreshToken);
 
-    const user = await prisma.user.findUnique({
-      where: { id: payload.userId }
+    // Generate new access token
+    const newAccessToken = generateAccessToken({
+      userId: decoded.userId,
+      email: decoded.email,
+      role: decoded.role,
     });
 
-    if (!user)
-      return res.status(401).json({ error: "Invalid token" });
+    res.cookie('accessToken', newAccessToken, COOKIE_OPTIONS);
 
-    const newAccess = signAccessToken({ userId: user.id });
-    const newRefresh = signRefreshToken({ userId: user.id });
-
-    res.cookie("accessToken", newAccess, ACCESS_COOKIE_OPTS);
-    res.cookie("refreshToken", newRefresh, REFRESH_COOKIE_OPTS);
-
-    res.json({
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        role: user.role
-      }
-    });
-  } catch (err) {
-    return res.status(401).json({ error: "Invalid token" });
+    res.json({ message: 'Token refreshed successfully' });
+  } catch (error) {
+    throw new AppError('Invalid refresh token', 401);
   }
-};
+});
 
-export const logout = async (req: Request, res: Response) => {
-  res.clearCookie("accessToken");
-  res.clearCookie("refreshToken");
-  res.json({ ok: true });
-};
+export const logout = asyncHandler(async (req: AuthRequest, res: Response) => {
+  res.clearCookie('accessToken');
+  res.clearCookie('refreshToken');
+  res.json({ message: 'Logout successful' });
+});
 
-export const me = async (req: Request, res: Response) => {
-  try {
-    const token = req.cookies?.accessToken;
-    if (!token) return res.status(401).json({ user: null });
-
-    const payload: any = verifyAccessToken(token);
-    const user = await prisma.user.findUnique({
-      where: { id: payload.userId },
-      select: { id: true, username: true, email: true, role: true }
-    });
-
-    return res.json({ user });
-  } catch {
-    return res.status(401).json({ user: null });
+export const me = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) {
+    throw new AppError('Not authenticated', 401);
   }
-};
 
+  const user = await prisma.user.findUnique({
+    where: { id: req.user.userId },
+    select: {
+      id: true,
+      username: true,
+      email: true,
+      role: true,
+      createdAt: true,
+    },
+  });
+
+  if (!user) {
+    throw new AppError('User not found', 404);
+  }
+
+  res.json({ user });
+});

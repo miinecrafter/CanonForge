@@ -1,29 +1,81 @@
-import { Request, Response } from "express";
-import prisma from "../prisma/client";
+import { Response } from 'express';
+import { AuthRequest } from '../middleware/auth';
+import prisma from '../config/database';
+import { AppError, asyncHandler } from '../middleware/error';
 
-export const createReview = async (req: Request, res: Response) => {
+export const createReview = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) {
+    throw new AppError('Authentication required', 401);
+  }
+
   const { id } = req.params;
   const { feedback, decision } = req.body;
-  const user = (req as any).user;
 
-  const submission = await prisma.submission.findUnique({ where: { id: Number(id) }, include: { project: true }});
-  if (!submission) return res.status(404).json({ error: "Not found" });
-
-  // basic ownership: must be project owner/collaborator or admin
-  const ownerRel = await prisma.projectOwners.findFirst({ where: { projectId: submission.projectId, userId: user.id }});
-  if (!ownerRel && user.role !== "ADMIN") return res.status(403).json({ error: "Forbidden" });
-
-  const review = await prisma.review.create({
-    data: { submissionId: submission.id, reviewerId: user.id, feedback, decision }
+  // Get submission and check permissions
+  const submission = await prisma.submission.findUnique({
+    where: { id: Number(id) },
+    include: {
+      project: {
+        include: {
+          owners: true,
+        },
+      },
+    },
   });
 
-  // update submission status based on decision
-  let status = submission.status;
-  if (decision === "APPROVED") status = "APPROVED";
-  if (decision === "DECLINED") status = "DECLINED";
-  if (decision === "CHANGES_REQUESTED") status = "UNDER_REVIEW";
+  if (!submission) {
+    throw new AppError('Submission not found', 404);
+  }
 
-  await prisma.submission.update({ where: { id: submission.id }, data: { status }});
+  // Only project owners can review
+  const isOwner = submission.project.owners.some(o => o.userId === req.user!.userId);
+  if (!isOwner && req.user.role !== 'ADMIN') {
+    throw new AppError('Only project owners can review submissions', 403);
+  }
 
-  res.json({ review });
-};
+  // Create review
+  const review = await prisma.review.create({
+    data: {
+      submissionId: Number(id),
+      reviewerId: req.user.userId,
+      feedback,
+      decision: decision || null,
+    },
+    include: {
+      reviewer: {
+        select: {
+          id: true,
+          username: true,
+        },
+      },
+    },
+  });
+
+  // Update submission status based on decision
+  if (decision) {
+    let newStatus = submission.status;
+    
+    if (decision === 'APPROVED') {
+      newStatus = 'APPROVED';
+    } else if (decision === 'DECLINED') {
+      newStatus = 'DECLINED';
+    } else if (decision === 'CHANGES_REQUESTED') {
+      newStatus = 'UNDER_REVIEW';
+    }
+
+    await prisma.submission.update({
+      where: { id: Number(id) },
+      data: { status: newStatus },
+    });
+  } else {
+    // If no decision, mark as under review
+    if (submission.status === 'SUBMITTED') {
+      await prisma.submission.update({
+        where: { id: Number(id) },
+        data: { status: 'UNDER_REVIEW' },
+      });
+    }
+  }
+
+  res.status(201).json({ review });
+});
