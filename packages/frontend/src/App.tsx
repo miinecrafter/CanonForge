@@ -1,39 +1,92 @@
-import React from "react";
-import { BrowserRouter, Routes, Route, Link } from "react-router-dom";
-import Login from "./pages/Login";
-import Register from "./pages/Register";
-import Projects from "./pages/Projects";
-import ProjectPage from "./pages/ProjectPage";
-import CreateProject from "./pages/CreateProject";
-import NewSubmission from "./pages/NewSubmission";
-import ReviewList from "./pages/ReviewList";
-import ReviewSubmission from "./pages/ReviewSubmission";
-import Navbar from "./components/navbar";
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import HomePage from './pages/HomePage';
+import LoginPage from './pages/LoginPage';
+import RegisterPage from './pages/RegisterPage';
+import ProjectsPage from './pages/ProjectsPage';
+import ProjectDetailPage from './pages/ProjectDetailPage';
+import CreateProjectPage from './pages/CreateProjectPage';
+import SubmissionEditorPage from './pages/SubmissionEditorPage';
+import ReviewDashboardPage from './pages/ReviewDashboardPage';
+import DashboardPage from './pages/DashboardPage';
+import Navbar from './components/Navbar';
+import './styles.css';
 
-export default function App() {
+const PrivateRoute = ({ children }: { children: React.ReactNode }) => {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return <div className="loading">Loading...</div>;
+  }
+
+  return user ? <>{children}</> : <Navigate to="/login" />;
+};
+
+function AppRoutes() {
+  return (
+    <div className="app">
+      <Navbar />
+      <main className="main-content">
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/projects" element={<ProjectsPage />} />
+          <Route path="/p/:slug" element={<ProjectDetailPage />} />
+          <Route
+            path="/projects/create"
+            element={
+              <PrivateRoute>
+                <CreateProjectPage />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/dashboard"
+            element={
+              <PrivateRoute>
+                <DashboardPage />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/p/:slug/submit"
+            element={
+              <PrivateRoute>
+                <SubmissionEditorPage />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/p/:slug/review"
+            element={
+              <PrivateRoute>
+                <ReviewDashboardPage />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/submissions/:id/edit"
+            element={
+              <PrivateRoute>
+                <SubmissionEditorPage />
+              </PrivateRoute>
+            }
+          />
+        </Routes>
+      </main>
+    </div>
+  );
+}
+
+function App() {
   return (
     <BrowserRouter>
-      <Navbar />
-      <nav style={{ padding: 10, borderBottom: "1px solid #ccc" }}>
-        <Link to="/">Projects</Link> |{" "}
-        <Link to="/login">Login</Link> |{" "}
-        <Link to="/register">Register</Link> |{" "}
-        <Link to="/projects/new">Create Project</Link>
-      </nav>
-
-      <Routes>
-        <Route path="/" element={<Projects />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-
-        <Route path="/projects/new" element={<CreateProject />} />
-        <Route path="/p/:slug" element={<ProjectPage />} />
-
-        <Route path="/p/:slug/submit" element={<NewSubmission />} />
-
-        <Route path="/p/:projectId/review" element={<ReviewList />} />
-        <Route path="/submission/:id/review" element={<ReviewSubmission />} />
-      </Routes>
+      <AuthProvider>
+        <AppRoutes />
+      </AuthProvider>
     </BrowserRouter>
   );
 }
+
+export default App;

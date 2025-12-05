@@ -1,61 +1,65 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
-import api from "../api";
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import api from '../api';
+import { User } from '../types';
 
-interface User {
-  id: number;
-  username: string;
-  email: string;
-  role: string;
-}
-
-interface AuthContextValue {
+interface AuthContextType {
   user: User | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  register: (username: string, email: string, password: string, role?: string) => Promise<void>;
   logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextValue | null>(null);
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
+
+export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Try to load current user on first load
+  const refreshUser = async () => {
+    try {
+      const response = await api.get('/auth/me');
+      setUser(response.data.user);
+    } catch (error) {
+      setUser(null);
+    }
+  };
+
   useEffect(() => {
-    const load = async () => {
-      try {
-        const res = await api.get("/api/auth/me");
-        setUser(res.data.user);
-      } catch {
-        setUser(null);
-      }
+    const initAuth = async () => {
+      await refreshUser();
       setLoading(false);
     };
-    load();
+    initAuth();
   }, []);
 
   const login = async (email: string, password: string) => {
-    const res = await api.post("/api/auth/login", { email, password });
-    setUser(res.data.user);
+    const response = await api.post('/auth/login', { email, password });
+    setUser(response.data.user);
+  };
+
+  const register = async (username: string, email: string, password: string, role?: string) => {
+    const response = await api.post('/auth/register', { username, email, password, role });
+    setUser(response.data.user);
   };
 
   const logout = async () => {
-    await api.post("/api/auth/logout");
+    await api.post('/auth/logout');
     setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );
 };
-
-// Hook to use auth easily
-export const useAuth = () => {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be inside <AuthProvider>");
-  return ctx;
-};
-
