@@ -20,11 +20,15 @@ const ReviewDashboardPage = () => {
 
   const fetchData = async () => {
     try {
-      const [projectRes, submissionsRes] = await Promise.all([
-        api.get(`/projects/${slug}`),
-        api.get(`/projects/${slug}/submissions`, { params: { status: 'SUBMITTED' } }),
-      ]);
-      setProject(projectRes.data.project);
+      // First get project
+      const projectRes = await api.get(`/projects/${slug}`);
+      const proj = projectRes.data.project;
+      setProject(proj);
+      
+      // Then get submissions using project ID
+      const submissionsRes = await api.get(`/projects/${proj.id}/submissions`, { 
+        params: { status: 'SUBMITTED' } 
+      });
       setSubmissions(submissionsRes.data.submissions || []);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to load data');
@@ -60,6 +64,7 @@ const ReviewDashboardPage = () => {
       setDecision('');
       setCanonNotes('');
       setSelectedSubmission(null);
+      setError('');
       await fetchData();
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to submit review');
@@ -105,16 +110,22 @@ const ReviewDashboardPage = () => {
                 {submissions.map((sub) => (
                   <div
                     key={sub.id}
-                    onClick={() => setSelectedSubmission(sub)}
+                    onClick={() => {
+                      setSelectedSubmission(sub);
+                      setError('');
+                    }}
                     style={{
                       padding: '1rem',
                       cursor: 'pointer',
                       borderBottom: '1px solid #ddd',
                       backgroundColor: selectedSubmission?.id === sub.id ? '#e8f4f8' : 'transparent',
+                      transition: 'background-color 0.2s',
                     }}
                   >
-                    <h4>{sub.title}</h4>
-                    <p className="text-muted">By {sub.author.username}</p>
+                    <h4 style={{ marginBottom: '0.25rem' }}>{sub.title}</h4>
+                    <p className="text-muted" style={{ fontSize: '0.875rem', marginBottom: '0.5rem' }}>
+                      By {sub.author.username}
+                    </p>
                     <span className={`status status-${sub.status.toLowerCase()}`}>
                       {sub.status}
                     </span>
@@ -179,12 +190,13 @@ const ReviewDashboardPage = () => {
                   </div>
                 )}
 
-                {error && <div className="error">{error}</div>}
+                {error && <div className="error" style={{ marginBottom: '1rem' }}>{error}</div>}
 
                 <button 
                   onClick={() => handleReview(selectedSubmission.id)} 
                   className="btn"
                   style={{ width: '100%' }}
+                  disabled={!feedback && !decision}
                 >
                   Submit Review
                 </button>
