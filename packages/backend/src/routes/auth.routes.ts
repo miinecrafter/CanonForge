@@ -1,24 +1,14 @@
-import { Router } from "express";
-import { body } from "express-validator";
-import * as authController from "../controllers/auth.controller";
+import { Router } from 'express';
+import { register, login, refresh, logout, me } from '../controllers/auth.controller';
+import { registerValidation, loginValidation, validate } from '../utils/validation';
+import { authenticate } from '../middleware/auth';
 
 const router = Router();
 
-router.post("/register",
-  body("username").isLength({ min: 3 }),
-  body("email").isEmail(),
-  body("password").isLength({ min: 6 }),
-  authController.register
-);
-
-router.post("/login",
-  body("email").isEmail(),
-  body("password").isLength({ min: 6 }),
-  authController.login
-);
-
-router.post("/refresh", authController.refresh);
-router.post("/logout", authController.logout);
-router.get("/me", authController.me);
+router.post('/register', registerValidation, validate, register);
+router.post('/login', loginValidation, validate, login);
+router.post('/refresh', refresh);
+router.post('/logout', logout);
+router.get('/me', authenticate, me);
 
 export default router;

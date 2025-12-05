@@ -1,10 +1,9 @@
-import { Router } from "express";
-import { requireAuth, requireRole } from "../middleware/auth";
-import * as reviewsController from "../controllers/reviews.controller";
-import { body } from "express-validator";
+import { Router } from 'express';
+import { createReview } from '../controllers/reviews.controller';
+import { authenticate } from '../middleware/auth';
 
 const router = Router();
 
-router.post("/submissions/:id/reviews", requireAuth, requireRole(["WRITER","ADMIN"]), body("decision").isString(), reviewsController.createReview);
+router.post('/submissions/:id/reviews', authenticate, createReview);
 
 export default router;

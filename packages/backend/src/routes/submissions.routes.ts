@@ -1,14 +1,20 @@
-import { Router } from "express";
-import { body } from "express-validator";
-import { requireAuth } from "../middleware/auth";
-import * as submissionsController from "../controllers/submissions.controller";
+import { Router } from 'express';
+import {
+  createSubmission,
+  updateSubmission,
+  submitForReview,
+  listSubmissions,
+  getSubmission,
+} from '../controllers/submissions.controller';
+import { authenticate } from '../middleware/auth';
+import { submissionValidation, validate } from '../utils/validation';
 
 const router = Router();
 
-router.post("/projects/:slug/submissions", requireAuth, body("title").isLength({ min: 1 }), submissionsController.createSubmission);
-router.patch("/submissions/:id", requireAuth, submissionsController.updateSubmission);
-router.post("/submissions/:id/submit", requireAuth, submissionsController.submitSubmission);
-router.get("/projects/:slug/submissions", requireAuth, submissionsController.listProjectSubmissions);
-router.get("/submissions/:id", requireAuth, submissionsController.getSubmission);
+router.post('/projects/:projectId/submissions', authenticate, submissionValidation, validate, createSubmission);
+router.get('/projects/:projectId/submissions', authenticate, listSubmissions);
+router.get('/submissions/:id', authenticate, getSubmission);
+router.patch('/submissions/:id', authenticate, updateSubmission);
+router.post('/submissions/:id/submit', authenticate, submitForReview);
 
 export default router;
