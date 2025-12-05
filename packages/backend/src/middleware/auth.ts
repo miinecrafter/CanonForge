@@ -1,29 +1,49 @@
-import { Request, Response, NextFunction } from "express";
-import { verifyAccessToken } from "../utils/jwt";
-import prisma from "../prisma/client";
+import { Request, Response, NextFunction } from 'express';
+import { verifyAccessToken, JWTPayload } from '../utils/jwt';
 
 export interface AuthRequest extends Request {
-  user?: any;
+  user?: JWTPayload;
 }
 
-export const requireAuth = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const authenticate = (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const token = req.cookies?.accessToken || (req.headers.authorization && req.headers.authorization.split(" ")[1]);
-    if (!token) return res.status(401).json({ error: "Unauthorized Error 1" });
-    const payload: any = verifyAccessToken(token);
-    const user = await prisma.user.findUnique({ where: { id: payload.userId }});
-    if (!user) return res.status(401).json({ error: "Unauthorized Error 2" });
-    req.user = user;
+    const token = req.cookies.accessToken;
+
+    if (!token) {
+      return res.status(401).json({ message: 'Authentication required' });
+    }
+
+    const decoded = verifyAccessToken(token);
+    req.user = decoded;
     next();
-  } catch (err) {
-    return res.status(401).json({ error: "Unauthorized Error 3" });
+  } catch (error) {
+    return res.status(401).json({ message: 'Invalid or expired token' });
   }
 };
 
-export const requireRole = (roles: string[]) => {
+export const requireRole = (...roles: string[]) => {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
-    if (!req.user) return res.status(401).json({ error: "Unauthorized Error 4" });
-    if (!roles.includes(req.user.role)) return res.status(403).json({ error: "Forbidden" });
+    if (!req.user) {
+      return res.status(401).json({ message: 'Authentication required' });
+    }
+
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({ message: 'Insufficient permissions' });
+    }
+
     next();
   };
+};
+
+export const optionalAuth = (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const token = req.cookies.accessToken;
+    if (token) {
+      const decoded = verifyAccessToken(token);
+      req.user = decoded;
+    }
+  } catch (error) {
+    // Token invalid but we allow the request to continue
+  }
+  next();
 };
